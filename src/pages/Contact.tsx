@@ -1,6 +1,7 @@
-import React, { useState, lazy } from 'react';
-import { MapPin, Phone, Mail, Clock } from 'lucide-react';
+import React, { useState } from 'react';
+import { MapPin, Phone, Mail, Clock ,CheckCircle, Loader2} from 'lucide-react';
 import { Button } from '../components/ui/Button';
+import emailjs from '@emailjs/browser';
 export function Contact() {
   const [formData, setFormData] = useState({
     name: '',
@@ -9,6 +10,9 @@ export function Contact() {
     subject: '',
     message: ''
   });
+  const [submitted, setSubmitted] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+
   const handleChange = (
   e: React.ChangeEvent<
     HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
@@ -20,19 +24,35 @@ export function Contact() {
       [name]: value
     }));
   };
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    // In a real implementation, this would send data to a backend
-    console.log('Form submitted:', formData);
-    alert("Thank you for your message! We'll get back to you shortly.");
-    setFormData({
-      name: '',
-      email: '',
-      phone: '',
-      subject: '',
-      message: ''
-    });
-  };
+ const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  setIsSending(true);
+
+  // IDs for the email TO YOU
+  const serviceId = 'service_euowsis';
+  const adminTemplateId = 'template_r710chj';
+  
+  // ID for the AUTO-REPLY TO CUSTOMER
+  const autoReplyTemplateId = 'template_f5am0mi'; 
+  
+  const publicKey = 'Ib-P6nuOrMD7NE9oI';
+
+  try {
+    // Send both emails simultaneously
+    await Promise.all([
+      emailjs.send(serviceId, adminTemplateId, formData, publicKey),
+      emailjs.send(serviceId, autoReplyTemplateId, formData, publicKey)
+    ]);
+
+    setSubmitted(true);
+    setFormData({ name: '', email: '', phone: '', subject: '', message: '' });
+  } catch (error) {
+    console.error('Error:', error);
+    alert("Submission failed. Please try again.");
+  } finally {
+    setIsSending(false);
+  }
+};
   return (
     <div className="min-h-screen bg-white">
       {/* Header Banner */}
@@ -203,6 +223,13 @@ export function Contact() {
                   Send Us a Message
                 </h2>
                 <form onSubmit={handleSubmit} className="space-y-4">
+                  {submitted && (
+                    <div className="rounded-md bg-green-100 p-4">
+                      <p className="text-green-800">
+                        Thank you! Your message has been sent.
+                      </p>
+                    </div>
+                  )}
                   <div>
                     <label
                       htmlFor="name"
@@ -302,8 +329,23 @@ export function Contact() {
                     </textarea>
                   </div>
                   <div className="pt-2">
-                    <Button type="submit" variant="primary" className="w-full">
-                      Send Message
+                    <Button
+                      type="submit"
+                      variant="primary"
+                      className="w-full flex items-center justify-center"
+                      disabled={isSending}
+                    >
+                      {isSending && (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      )}
+                      {!isSending && submitted && (
+                        <CheckCircle className="mr-2 h-4 w-4 text-green-200" />
+                      )}
+                      {isSending
+                        ? 'Sending...'
+                        : submitted
+                        ? 'Sent'
+                        : 'Send Message'}
                     </Button>
                   </div>
                 </form>
