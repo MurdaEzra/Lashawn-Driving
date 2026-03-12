@@ -8,7 +8,7 @@ export function TestimonialsSection() {
     name: 'Sarah Kamau',
     role: 'Category B Graduate',
     imageUrl:
-    'https://images.unsplash.com/photo-1494790108377-be9c29b29330?ixlib=rb-4.0.3&auto=format&fit=crop&w=256&q=80'
+    ''
   },
   {
     quote:
@@ -16,7 +16,7 @@ export function TestimonialsSection() {
     name: 'John Omondi',
     role: 'Microsoft Office Graduate',
     imageUrl:
-    'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?ixlib=rb-4.0.3&auto=format&fit=crop&w=256&q=80'
+    ''
   },
   {
     quote:
@@ -24,7 +24,7 @@ export function TestimonialsSection() {
     name: 'Mary Wanjiku',
     role: 'Satisfied Customer',
     imageUrl:
-    'https://images.unsplash.com/photo-1580489944761-15a19d654956?ixlib=rb-4.0.3&auto=format&fit=crop&w=256&q=80'
+    ''
   }];
 
   return (
