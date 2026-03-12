@@ -1,0 +1,49 @@
+/* PLEASE NOTE: THESE TAILWIND IMPORTS SHOULD NEVER BE DELETED */
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+/* DO NOT DELETE THESE TAILWIND IMPORTS, OTHERWISE THE STYLING WILL NOT RENDER AT ALL */
+
+/* Print styles - only show the printable exam form area */
+@media print {
+  body {
+    margin: 0;
+    padding: 0;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  body * {
+    visibility: hidden;
+  }
+  .print-exam-form,
+  .print-exam-form * {
+    visibility: visible;
+  }
+  .print-exam-form {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    padding: 10mm;
+    box-sizing: border-box;
+    font-size: 11px;
+    overflow: hidden;
+  }
+  .print-exam-form img {
+    max-width: 100%;
+    height: auto;
+    page-break-inside: avoid;
+  }
+  .print-exam-form .doc-thumbnails img {
+    max-height: 120px;
+    width: auto;
+  }
+  .no-print {
+    display: none !important;
+  }
+  @page {
+    size: A4;
+    margin: 10mm;
+  }
+}
