@@ -365,6 +365,72 @@ app.post('/api/students', async (req, res) => {
     return res.status(500).json({ error: 'Insert student failed' });
   }
 });
+app.get('/api/students', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('students')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Fetch students error:', error);
+      return res.status(500).json({ error: 'Failed to fetch students' });
+    }
+
+    res.json(data);
+  } catch (err) {
+    console.error('Fetch exception:', err);
+    res.status(500).json({ error: 'Server error fetching students' });
+  }
+});
+app.post('/api/update-student', async (req, res) => {
+  try {
+    const { registration_number, update } = req.body;
+
+    if (!registration_number || !update) {
+      return res.status(400).json({ error: 'Missing registration_number or update data' });
+    }
+
+    const { error } = await supabase
+      .from('students')
+      .update(update)
+      .eq('registration_number', registration_number);
+
+    if (error) {
+      console.error('Update error:', error);
+      return res.status(500).json({ error: 'Failed to update student' });
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Update exception:', err);
+    res.status(500).json({ error: 'Server error updating student' });
+  }
+});
+app.post('/api/delete-student', async (req, res) => {
+  try {
+    const { registration_number } = req.body;
+
+    if (!registration_number) {
+      return res.status(400).json({ error: 'registration_number required' });
+    }
+
+    const { error } = await supabase
+      .from('students')
+      .delete()
+      .eq('registration_number', registration_number);
+
+    if (error) {
+      console.error('Delete error:', error);
+      return res.status(500).json({ error: 'Failed to delete student' });
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Delete exception:', err);
+    res.status(500).json({ error: 'Server error deleting student' });
+  }
+});
 
 app.listen(PORT, () => {
   console.info(`STK server running on port ${PORT}`);
