@@ -29,6 +29,7 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 }
 
 const supabase = createClient(SUPABASE_URL || '', SUPABASE_SERVICE_ROLE_KEY || '');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || '');
 
 // Endpoint to initiate STK Push
 app.post('/api/stkpush', async (req, res) => {
@@ -118,24 +119,61 @@ app.post('/api/stk-callback', async (req, res) => {
       accountRef = callback.AccountReference || '';
     }
 
-    // If success, update student record
+    // If success, update student record and create auth user if needed
     if (resultCode === 0 && accountRef) {
-      // Find student by registration_number and update fees_paid
       if (supabase) {
         try {
-          const { data: student } = await supabase
+          const { data: student, error: studentErr } = await supabase
             .from('students')
             .select('*')
             .eq('registration_number', accountRef)
             .single();
 
+          if (studentErr) {
+            console.error('Error fetching student in callback', studentErr);
+          }
+
           if (student) {
             const newFeesPaid = (student.fees_paid || 0) + (amount || 0);
-            // If your DB uses a boolean `status` (active/inactive), write boolean true for Active
-            await supabase
-              .from('students')
-              .update({ fees_paid: newFeesPaid, status: true })
-              .eq('registration_number', accountRef);
+
+            // If student has no linked auth user (id), create one using the service role
+            if (!student.id) {
+              try {
+                // Prefer the student's provided email if available; otherwise create a placeholder
+                const userEmail = student.email && student.email.includes('@') ? student.email : `${accountRef}@students.lashawndriving.local`;
+                const tempPass = Math.random().toString(36).slice(-10) + 'A1!';
+
+                // Create admin user via Supabase Admin API
+                const { data: userData, error: createUserErr } = await supabase.auth.admin.createUser({
+                  email: userEmail,
+                  password: tempPass,
+                  email_confirm: true
+                });
+
+                if (createUserErr) {
+                  console.error('Error creating auth user in callback', createUserErr);
+                } else if (userData && userData.user) {
+                  // Update the student record with the new auth user id, fees_paid, set active status and store temp password temporarily
+                  await supabase
+                    .from('students')
+                    .update({ id: userData.user.id, fees_paid: newFeesPaid, status: true, temp_password: tempPass })
+                    .eq('registration_number', accountRef);
+                }
+              } catch (createErr) {
+                console.error('Exception creating auth user in callback', createErr);
+                // As a fallback still update fees and status
+                await supabase
+                  .from('students')
+                  .update({ fees_paid: newFeesPaid, status: true })
+                  .eq('registration_number', accountRef);
+              }
+            } else {
+              // Student already has an auth id; just update fees and status
+              await supabase
+                .from('students')
+                .update({ fees_paid: newFeesPaid, status: true })
+                .eq('registration_number', accountRef);
+            }
           }
         } catch (dbErr) {
           console.error('Supabase update failed in callback', dbErr);
@@ -144,6 +182,86 @@ app.post('/api/stk-callback', async (req, res) => {
     }
   } catch (err) {
     console.error('Error handling STK callback', err);
+  }
+});
+
+// Create a Stripe PaymentIntent for card payments
+app.post('/api/create-payment-intent', async (req, res) => {
+  try {
+    const { amount, registration_number, receipt_email } = req.body;
+    if (!amount || !registration_number) return res.status(400).json({ error: 'amount and registration_number required' });
+
+    if (!stripe) return res.status(500).json({ error: 'Stripe not configured' });
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Math.round(amount * 100),
+      currency: 'kes',
+      receipt_email: receipt_email || undefined,
+      metadata: { registration_number }
+    });
+
+    return res.json({ client_secret: paymentIntent.client_secret, id: paymentIntent.id });
+  } catch (err) {
+    console.error('create-payment-intent error', err);
+    return res.status(500).json({ error: 'create payment intent failed' });
+  }
+});
+
+// Confirm card payment and finalize student record
+app.post('/api/confirm-card-payment', async (req, res) => {
+  try {
+    const { payment_intent_id, registration_number } = req.body;
+    if (!payment_intent_id || !registration_number) return res.status(400).json({ error: 'payment_intent_id and registration_number required' });
+
+    if (!stripe) return res.status(500).json({ error: 'Stripe not configured' });
+
+    const intent = await stripe.paymentIntents.retrieve(payment_intent_id);
+    if (!intent) return res.status(404).json({ error: 'payment intent not found' });
+
+    if (intent.status !== 'succeeded') return res.status(400).json({ error: 'payment not successful' });
+
+    const amount = (intent.amount_received || intent.amount) / 100;
+
+    // Finalize student record in Supabase
+    if (supabase) {
+      try {
+        const { data: student } = await supabase
+          .from('students')
+          .select('*')
+          .eq('registration_number', registration_number)
+          .single();
+
+        const newFeesPaid = ((student && student.fees_paid) || 0) + (amount || 0);
+
+        if (student && !student.id) {
+          // Create auth user
+          const userEmail = student.email && student.email.includes('@') ? student.email : `${registration_number}@students.lashawndriving.local`;
+          const tempPass = Math.random().toString(36).slice(-10) + 'A1!';
+          const { data: userData, error: createUserErr } = await supabase.auth.admin.createUser({
+            email: userEmail,
+            password: tempPass,
+            email_confirm: true
+          });
+
+          if (createUserErr) {
+            console.error('Error creating auth user in confirm-card-payment', createUserErr);
+            // still update fees and status
+            await supabase.from('students').update({ fees_paid: newFeesPaid, status: true }).eq('registration_number', registration_number);
+          } else {
+            await supabase.from('students').update({ id: userData.user.id, fees_paid: newFeesPaid, status: true, temp_password: tempPass }).eq('registration_number', registration_number);
+          }
+        } else if (student) {
+          await supabase.from('students').update({ fees_paid: newFeesPaid, status: true }).eq('registration_number', registration_number);
+        }
+      } catch (dbErr) {
+        console.error('Error finalizing student after card payment', dbErr);
+      }
+    }
+
+    return res.json({ ok: true, payment_intent: intent });
+  } catch (err) {
+    console.error('confirm-card-payment error', err);
+    return res.status(500).json({ error: 'confirm card payment failed' });
   }
 });
 

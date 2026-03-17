@@ -11,11 +11,15 @@ import {
 'lucide-react';
 import { useStudentContext } from '../contexts/StudentContext';
 import { supabase } from '../contexts/supabaseClient';
+import StripeCardForm from '../components/ui/StripeCardForm';
 export function Registration() {
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('mpesa');
   const [registrationNumber, setRegistrationNumber] = useState('');
+  const [paymentAmount, setPaymentAmount] = useState<number | ''>('');
+  const [tempPassword, setTempPassword] = useState('');
+  const [showCardForm, setShowCardForm] = useState(false);
   const { addStudent } = useStudentContext();
   const [formData, setFormData] = useState({
     // Step 1: Personal Details
@@ -114,19 +118,27 @@ export function Registration() {
 
       // Calculate fees
       const totalFee = getInvoiceTotal();
+      const minAmount = Math.ceil(totalFee * 0.3);
+      const chosenAmount = paymentAmount === '' ? totalFee : Number(paymentAmount);
+
+      if (chosenAmount < minAmount) {
+        alert(`Amount must be at least KSh ${minAmount.toLocaleString()}`);
+        setIsSubmitting(false);
+        return;
+      }
 
       if (paymentMethod === 'mpesa') {
         // For MPESA initiate STK Push via server and create a pending student record
         const { error: insertError } = await supabase
           .from('students')
-          .insert({
+            .insert({
             registration_number: newRegNum,
             name: formData.studentName,
             id_number: formData.idNumber,
             email: formData.email,
             phone: formData.phone,
             course: formData.drivingCategory || 'General Course',
-            fees_paid: 0,
+            fees_paid: chosenAmount,
             total_fees: totalFee,
             eligible_for_exams: false,
             // Store boolean status server-side (true=active, false=pending/not-active)
@@ -153,7 +165,7 @@ export function Registration() {
         const resp = await fetch(`${apiBase}/api/stkpush`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ phone, amount: totalFee, registration_number: newRegNum })
+          body: JSON.stringify({ phone, amount: chosenAmount, registration_number: newRegNum })
         });
 
         const data = await resp.json();
@@ -174,7 +186,7 @@ export function Registration() {
           email: formData.email,
           phone: formData.phone,
           course: formData.drivingCategory || 'General Course',
-          feesPaid: 0,
+          feesPaid: chosenAmount,
           totalFees: totalFee,
           pendingDays: 30,
           eligibleForExams: false,
@@ -187,37 +199,20 @@ export function Registration() {
         setStep(4);
         window.scrollTo(0, 0);
       } else {
-        // Non-MPESA: create auth user and assume payment completed
-        const paid = totalFee;
-
-        const tempPassword = Math.random().toString(36).slice(-10) + 'A1!';
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-          email: formData.email,
-          password: tempPassword
-        });
-
-        if (authError) {
-          console.error('Auth error:', authError);
-          alert('Failed to create account. Please try again.');
-          setIsSubmitting(false);
-          return;
-        }
-
+        // Card flow: create a pending student record and show card form
         const { error: insertError } = await supabase
           .from('students')
           .insert({
-            id: authData.user?.id,
             registration_number: newRegNum,
             name: formData.studentName,
             id_number: formData.idNumber,
             email: formData.email,
             phone: formData.phone,
             course: formData.drivingCategory || 'General Course',
-            fees_paid: paid,
+            fees_paid: chosenAmount,
             total_fees: totalFee,
             eligible_for_exams: false,
-            // Mark active in DB as boolean true
-            status: true
+            status: false
           } as any);
 
         if (insertError) {
@@ -227,35 +222,10 @@ export function Registration() {
           return;
         }
 
-        // Send password reset email so the student sets their own password
-        try {
-          await supabase.auth.resetPasswordForEmail(formData.email, {
-            redirectTo: window.location.origin + '/student/login'
-          });
-        } catch (e) {
-          console.warn('Could not send reset email:', e);
-        }
-
-        // Add to local context for immediate UI update
-        addStudent({
-          id: newRegNum,
-          name: formData.studentName,
-          idNumber: formData.idNumber,
-          email: formData.email,
-          phone: formData.phone,
-          course: formData.drivingCategory || 'General Course',
-          feesPaid: paid,
-          totalFees: totalFee,
-          pendingDays: 30,
-          eligibleForExams: false,
-          status: 'Active',
-          enrollmentDate: new Date().toISOString().split('T')[0],
-          needsPasswordReset: true,
-          documents: {}
-        });
-
-        setStep(4);
-        window.scrollTo(0, 0);
+        // Show the Stripe card form to collect card details and confirm payment
+        setShowCardForm(true);
+        setIsSubmitting(false);
+        return;
       }
     } catch (error) {
       console.error('Registration error:', error);
@@ -295,6 +265,47 @@ export function Registration() {
   });
   const copyRegNumber = () => {
     navigator.clipboard.writeText(registrationNumber);
+  };
+
+  const handleCardSuccess = async (respData: any) => {
+    try {
+      // Fetch updated student record to get temp password (if stored)
+      const { data: student, error } = await supabase
+        .from('students')
+        .select('*')
+        .eq('registration_number', registrationNumber)
+        .single();
+
+      if (error) {
+        console.error('Error fetching student after card payment', error);
+      }
+
+      const paid = paymentAmount === '' ? getInvoiceTotal() : paymentAmount;
+
+      addStudent({
+        id: registrationNumber,
+        name: formData.studentName,
+        idNumber: formData.idNumber,
+        email: formData.email,
+        phone: formData.phone,
+        course: formData.drivingCategory || 'General Course',
+        feesPaid: paid,
+        totalFees: getInvoiceTotal(),
+        pendingDays: 30,
+        eligibleForExams: false,
+        status: 'Active',
+        enrollmentDate: new Date().toISOString().split('T')[0],
+        documents: {},
+        tempPassword: student?.temp_password || ''
+      });
+
+      setTempPassword(student?.temp_password || '');
+      setShowCardForm(false);
+      setStep(4);
+      window.scrollTo(0, 0);
+    } catch (e) {
+      console.error('handleCardSuccess error', e);
+    }
   };
   return (
     <div className="min-h-screen bg-gray-50 py-12 print:bg-white print:py-0">
@@ -1023,10 +1034,9 @@ export function Registration() {
                     <AlertCircle
                     size={20}
                     className="mr-2 flex-shrink-0 mt-0.5" />
-                  
                     <p>
                       You can pay the full amount now or a minimum deposit of
-                      50% to secure your spot. The balance can be paid in
+                      30% to secure your spot. The balance can be paid in
                       installments.
                     </p>
                   </div>
@@ -1095,28 +1105,64 @@ export function Registration() {
                     </label>
                   </div>
 
-                  <form onSubmit={handlePayment}>
-                    <div className="flex justify-between items-center pt-4 border-t border-gray-200">
-                      <Button
-                      type="button"
-                      variant="outline"
-                      onClick={prevStep}
-                      disabled={isSubmitting}>
-                      
-                        Back
-                      </Button>
-                      <Button
-                      type="submit"
-                      variant="primary"
-                      disabled={isSubmitting}
-                      className="min-w-[150px]">
-                      
-                        {isSubmitting ?
-                      'Processing...' :
-                      `Pay KSh ${getInvoiceTotal().toLocaleString()}`}
-                      </Button>
+                  <div>
+                    <div className="mb-4">
+                      {(() => {
+                        const total = getInvoiceTotal();
+                        const min = Math.ceil(total * 0.3);
+                        return (
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Amount to Pay (KSh) - Minimum KSh {min.toLocaleString()}
+                            </label>
+                            <input
+                              type="number"
+                              min={min}
+                              value={paymentAmount === '' ? total : paymentAmount}
+                              onChange={(e) => setPaymentAmount(Number(e.target.value))}
+                              className="w-full rounded-md border border-gray-300 px-3 py-2 focus:border-[#2E8B57] focus:ring-1 focus:ring-[#2E8B57] outline-none"
+                            />
+                          </div>
+                        );
+                      })()}
                     </div>
-                  </form>
+
+                    {showCardForm ? (
+                      <div className="pt-4">
+                        <StripeCardForm
+                          amount={paymentAmount === '' ? getInvoiceTotal() : Number(paymentAmount)}
+                          registrationNumber={registrationNumber}
+                          email={formData.email}
+                          onSuccess={handleCardSuccess}
+                          onError={(err) => alert('Card payment failed: ' + (err?.message || JSON.stringify(err)))}
+                        />
+                        <div className="mt-4">
+                          <Button type="button" variant="outline" onClick={() => setShowCardForm(false)}>Cancel</Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <form onSubmit={handlePayment}>
+                        <div className="flex justify-between items-center pt-4 border-t border-gray-200">
+                          <Button
+                          type="button"
+                          variant="outline"
+                          onClick={prevStep}
+                          disabled={isSubmitting}>
+                          
+                            Back
+                          </Button>
+                          <Button
+                          type="submit"
+                          variant="primary"
+                          disabled={isSubmitting || (paymentAmount !== '' && paymentAmount < Math.ceil(getInvoiceTotal() * 0.3))}
+                          className="min-w-[150px]">
+                          
+                            {isSubmitting ? 'Processing...' : `Pay KSh ${(paymentAmount === '' ? getInvoiceTotal() : paymentAmount).toLocaleString()}`}
+                          </Button>
+                        </div>
+                      </form>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1204,14 +1250,23 @@ export function Registration() {
                   </p>
                   <div className="mt-3 pt-3 border-t border-[#2E8B57]/20">
                     <p className="text-sm text-gray-700">
-                      Use this number to log in to the Student Portal.
+                      Use this registration number to log in to the Student Portal.
                     </p>
-                    <p className="text-sm text-gray-700 mt-1">
-                      A temporary password has been sent to your email address.
-                    </p>
-                    <p className="text-sm text-gray-700 mt-1">
-                      A password reset link has been sent to your email.
-                    </p>
+                    {tempPassword ? (
+                      <div className="mt-2 text-left">
+                        <p className="text-sm text-gray-700">
+                          <span className="font-medium">Login:</span> {registrationNumber}
+                        </p>
+                        <p className="text-sm text-gray-700">
+                          <span className="font-medium">Temporary password:</span> {tempPassword}
+                        </p>
+                        <p className="text-sm text-gray-700 mt-1">
+                          Please change your password after first login.
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-700 mt-1">Credentials will be created once payment is confirmed.</p>
+                    )}
                   </div>
                 </div>
 
@@ -1283,7 +1338,7 @@ export function Registration() {
                         Total Paid:
                       </td>
                       <td className="pt-4 pb-2 text-right font-bold text-[#2E8B57] text-lg">
-                        {getInvoiceTotal().toLocaleString()}.00
+                        {(paymentAmount === '' ? getInvoiceTotal() : paymentAmount).toLocaleString()}.00
                       </td>
                     </tr>
                     <tr>
