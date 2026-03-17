@@ -2,11 +2,8 @@ import React, { useState } from 'react';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 
-const publishableKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
-if (!publishableKey) {
-  throw new Error('Stripe publishable key is missing. Set VITE_STRIPE_PUBLISHABLE_KEY in your .env file.');
-}
-const stripePromise = loadStripe(publishableKey);
+const stripeKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
+const stripePromise = stripeKey ? loadStripe(stripeKey) : null;
 
 type Props = {
   amount: number;
