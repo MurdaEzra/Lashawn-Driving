@@ -20,7 +20,7 @@ export function BookingForm() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     // In a real implementation, this would send data to a backend
-    console.log('Form submitted:', formData);
+    if (import.meta.env.DEV) console.debug('Form submitted:', formData);
     alert("Thank you for your booking request! We'll contact you shortly.");
     setFormData({
       name: '',

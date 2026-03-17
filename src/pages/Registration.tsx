@@ -10,6 +10,7 @@ import {
   Copy } from
 'lucide-react';
 import { useStudentContext } from '../contexts/StudentContext';
+import { supabase } from '../contexts/supabaseClient';
 export function Registration() {
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -73,38 +74,156 @@ export function Registration() {
     const random = Math.floor(1000 + Math.random() * 9000);
     return `LASH-${year}-${random}`;
   };
-  const handlePayment = (e: React.FormEvent) => {
+  const handlePayment = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
-    setTimeout(() => {
-      setIsSubmitting(false);
+
+    try {
       const newRegNum = generateRegistrationNumber();
       setRegistrationNumber(newRegNum);
+
       // Calculate fees
       const totalFee = getInvoiceTotal();
-      // Mock: if they chose mpesa/card, assume they paid full for now, or you could do partial. Let's say they paid full.
-      const paid = totalFee;
-      // Add to global context
-      addStudent({
-        id: newRegNum,
-        name: formData.studentName,
-        idNumber: formData.idNumber,
-        email: formData.email,
-        phone: formData.phone,
-        course: formData.drivingCategory || 'General Course',
-        feesPaid: paid,
-        totalFees: totalFee,
-        pendingDays: 30,
-        eligibleForExams: false,
-        status: 'Active',
-        enrollmentDate: new Date().toISOString().split('T')[0],
-        password: 'password123',
-        needsPasswordReset: true,
-        documents: {}
-      });
-      setStep(4);
-      window.scrollTo(0, 0);
-    }, 2000);
+
+      if (paymentMethod === 'mpesa') {
+        // For MPESA initiate STK Push via server and create a pending student record
+        const { error: insertError } = await supabase
+          .from('students')
+          .insert({
+            registration_number: newRegNum,
+            name: formData.studentName,
+            id_number: formData.idNumber,
+            email: formData.email,
+            phone: formData.phone,
+            course: formData.drivingCategory || 'General Course',
+            fees_paid: 0,
+            total_fees: totalFee,
+            eligible_for_exams: false,
+            // Store boolean status server-side (true=active, false=pending/not-active)
+            status: false
+          });
+
+        if (insertError) {
+          console.error('Insert error:', insertError);
+          alert('Failed to save student data. Please try again.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        // Call server to start STK Push
+        const resp = await fetch('/api/stkpush', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: formData.phone, amount: totalFee, registration_number: newRegNum })
+        });
+
+        const data = await resp.json();
+
+        if (!resp.ok) {
+          console.error('STK init error:', data);
+          alert('Failed to initiate MPESA payment. Please try again.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        alert('STK Push initiated. Check your phone to complete payment.');
+        // Add pending student to local context for immediate UI
+        addStudent({
+          id: newRegNum,
+          name: formData.studentName,
+          idNumber: formData.idNumber,
+          email: formData.email,
+          phone: formData.phone,
+          course: formData.drivingCategory || 'General Course',
+          feesPaid: 0,
+          totalFees: totalFee,
+          pendingDays: 30,
+          eligibleForExams: false,
+          status: false,
+          enrollmentDate: new Date().toISOString().split('T')[0],
+          documents: {}
+        });
+
+        // Move to confirmation/awaiting payment step
+        setStep(4);
+        window.scrollTo(0, 0);
+      } else {
+        // Non-MPESA: create auth user and assume payment completed
+        const paid = totalFee;
+
+        const tempPassword = Math.random().toString(36).slice(-10) + 'A1!';
+        const { data: authData, error: authError } = await supabase.auth.signUp({
+          email: formData.email,
+          password: tempPassword
+        });
+
+        if (authError) {
+          console.error('Auth error:', authError);
+          alert('Failed to create account. Please try again.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        const { error: insertError } = await supabase
+          .from('students')
+          .insert({
+            id: authData.user?.id,
+            registration_number: newRegNum,
+            name: formData.studentName,
+            id_number: formData.idNumber,
+            email: formData.email,
+            phone: formData.phone,
+            course: formData.drivingCategory || 'General Course',
+            fees_paid: paid,
+            total_fees: totalFee,
+            eligible_for_exams: false,
+            // Mark active in DB as boolean true
+            status: true
+          });
+
+        if (insertError) {
+          console.error('Insert error:', insertError);
+          alert('Failed to save student data. Please try again.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        // Send password reset email so the student sets their own password
+        try {
+          await supabase.auth.resetPasswordForEmail(formData.email, {
+            redirectTo: window.location.origin + '/student/login'
+          });
+        } catch (e) {
+          console.warn('Could not send reset email:', e);
+        }
+
+        // Add to local context for immediate UI update
+        addStudent({
+          id: newRegNum,
+          name: formData.studentName,
+          idNumber: formData.idNumber,
+          email: formData.email,
+          phone: formData.phone,
+          course: formData.drivingCategory || 'General Course',
+          feesPaid: paid,
+          totalFees: totalFee,
+          pendingDays: 30,
+          eligibleForExams: false,
+          status: true,
+          enrollmentDate: new Date().toISOString().split('T')[0],
+          needsPasswordReset: true,
+          documents: {}
+        });
+
+        setStep(4);
+        window.scrollTo(0, 0);
+      }
+    } catch (error) {
+      console.error('Registration error:', error);
+      alert('An error occurred during registration. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
   const handlePrint = () => {
     window.print();
@@ -802,7 +921,7 @@ export function Registration() {
           <div className="p-6 sm:p-10">
               <div className="mb-8 border-b pb-4">
                 <h2 className="text-xl font-bold text-gray-800">
-                  Step 3/3 - Invoicing & Payment
+                  Step 3/3 - Invoicing & qaPayment
                 </h2>
                 <p className="text-sm text-gray-500 mt-1">
                   Review your application fees and complete payment.
@@ -1052,8 +1171,7 @@ export function Registration() {
                       A temporary password has been sent to your email address.
                     </p>
                     <p className="text-sm text-gray-700 mt-1">
-                      Default Password:{' '}
-                      <span className="font-mono font-bold">password123</span>
+                      A password reset link has been sent to your email.
                     </p>
                   </div>
                 </div>

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { supabase } from '../contexts/supabaseClient';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 interface FAQItemProps {
@@ -192,62 +193,29 @@ export function FAQ() {
 
   const [roadSigns, setRoadSigns] = useState<any[]>([]);
   useEffect(() => {
-    const saved = localStorage.getItem('lashawn_road_signs');
-    if (saved) {
-      setRoadSigns(JSON.parse(saved));
-    } else {
-      // Default fallback if nothing in localStorage
-      setRoadSigns([
-      {
-        id: '1',
-        name: 'Stop',
-        description: 'Come to a complete stop',
-        color: '#D7263D'
-      },
-      {
-        id: '2',
-        name: 'Yield',
-        description: 'Give way to oncoming traffic',
-        color: '#F59E0B'
-      },
-      {
-        id: '3',
-        name: 'No Entry',
-        description: 'Entry prohibited for all vehicles',
-        color: '#D7263D'
-      },
-      {
-        id: '4',
-        name: 'Speed Limit',
-        description: 'Maximum speed allowed',
-        color: '#D7263D'
-      },
-      {
-        id: '5',
-        name: 'One Way',
-        description: 'Traffic flows in one direction only',
-        color: '#1E90FF'
-      },
-      {
-        id: '6',
-        name: 'No Parking',
-        description: 'Parking not allowed',
-        color: '#D7263D'
-      },
-      {
-        id: '7',
-        name: 'Roundabout',
-        description: 'Circular intersection ahead',
-        color: '#1E90FF'
-      },
-      {
-        id: '8',
-        name: 'Pedestrian Crossing',
-        description: 'Watch for pedestrians',
-        color: '#F59E0B'
-      }]
-      );
-    }
+    const load = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('road_signs')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (error) {
+          console.error('Failed to load road signs:', error);
+          const saved = localStorage.getItem('lashawn_road_signs');
+          setRoadSigns(saved ? JSON.parse(saved) : []);
+        } else {
+          setRoadSigns(data || []);
+          localStorage.setItem('lashawn_road_signs', JSON.stringify(data || []));
+        }
+      } catch (err) {
+        console.error('Error loading road signs:', err);
+        const saved = localStorage.getItem('lashawn_road_signs');
+        setRoadSigns(saved ? JSON.parse(saved) : []);
+      }
+    };
+
+    load();
   }, []);
   return (
     <div className="min-h-screen bg-white">

@@ -1,4 +1,5 @@
 import React, { useEffect, useState, createContext, useContext } from 'react';
+import { supabase } from '../contexts/supabaseClient';
 export interface Student {
   id: string;
   name: string;
@@ -12,7 +13,6 @@ export interface Student {
   eligibleForExams: boolean;
   status: string;
   enrollmentDate: string;
-  password?: string;
   needsPasswordReset?: boolean;
   documents?: {
     passportPhoto?: string;
@@ -20,119 +20,183 @@ export interface Student {
     pdl?: string;
   };
 }
-const INITIAL_STUDENTS: Student[] = [
-{
-  id: 'LASH-2026-1001',
-  name: 'John Doe',
-  idNumber: '12345678',
-  email: 'john@example.com',
-  phone: '0712345678',
-  course: 'Category B (Cars)',
-  feesPaid: 16000,
-  totalFees: 16000,
-  pendingDays: 0,
-  eligibleForExams: true,
-  status: 'Active',
-  enrollmentDate: '2026-01-15',
-  password: 'password123',
-  needsPasswordReset: false
-},
-{
-  id: 'LASH-2026-1002',
-  name: 'Jane Smith',
-  idNumber: '87654321',
-  email: 'jane@example.com',
-  phone: '0723456789',
-  course: 'Category A (Motorcycles)',
-  feesPaid: 6000,
-  totalFees: 12000,
-  pendingDays: 14,
-  eligibleForExams: false,
-  status: 'Active',
-  enrollmentDate: '2026-02-01',
-  password: 'password123',
-  needsPasswordReset: false
-},
-{
-  id: 'LASH-2026-1003',
-  name: 'Michael Johnson',
-  idNumber: '11223344',
-  email: 'michael@example.com',
-  phone: '0734567890',
-  course: 'Category C (Light Commercial)',
-  feesPaid: 19000,
-  totalFees: 19000,
-  pendingDays: 2,
-  eligibleForExams: true,
-  status: 'Active',
-  enrollmentDate: '2026-01-10',
-  password: 'password123',
-  needsPasswordReset: false
-},
-{
-  id: 'LASH-2026-1004',
-  name: 'Sarah Williams',
-  idNumber: '44332211',
-  email: 'sarah@example.com',
-  phone: '0745678901',
-  course: 'Microsoft Office Suite',
-  feesPaid: 4000,
-  totalFees: 8000,
-  pendingDays: 21,
-  eligibleForExams: false,
-  status: 'Active',
-  enrollmentDate: '2026-02-15',
-  password: 'password123',
-  needsPasswordReset: false
-}];
+// No mock students — rely on Supabase as the source of truth.
 
 interface StudentContextType {
   students: Student[];
-  addStudent: (student: Student) => void;
-  updateStudent: (id: string, data: Partial<Student>) => void;
-  deleteStudent: (id: string) => void;
+  addStudent: (student: Student) => Promise<void>;
+  updateStudent: (id: string, data: Partial<Student>) => Promise<void>;
+  deleteStudent: (id: string) => Promise<void>;
   currentStudent: Student | null;
   loginStudent: (id: string, student: Student) => void;
   logoutStudent: () => void;
 }
 const StudentContext = createContext<StudentContextType | undefined>(undefined);
 export function StudentProvider({ children }: {children: React.ReactNode;}) {
-  const [students, setStudents] = useState<Student[]>(() => {
-    const saved = localStorage.getItem('lashawn_students');
-    return saved ? JSON.parse(saved) : INITIAL_STUDENTS;
-  });
+  const [students, setStudents] = useState<Student[]>([]);
+  const [loading, setLoading] = useState(true);
   const [currentStudentId, setCurrentStudentId] = useState<string | null>(
     () => {
       return localStorage.getItem('lashawn_current_student');
     }
   );
+
+  // Load students from Supabase on mount; fallback to localStorage/empty
   useEffect(() => {
-    localStorage.setItem('lashawn_students', JSON.stringify(students));
-  }, [students]);
+    const loadStudents = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('students')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (error) {
+          console.error('Supabase load error:', error);
+          const saved = localStorage.getItem('lashawn_students');
+          setStudents(saved ? JSON.parse(saved) : []);
+        } else {
+          // Map DB rows to local Student shape
+          const mapped = (data || []).map((r: any) => ({
+            id: r.registration_number || r.id,
+            name: r.name,
+            idNumber: r.id_number || r.idNumber || '',
+            email: r.email,
+            phone: r.phone || '',
+            course: r.course || '',
+            feesPaid: r.fees_paid || 0,
+            totalFees: r.total_fees || 0,
+            pendingDays: r.pending_days || 0,
+            eligibleForExams: r.eligible_for_exams || false,
+            // If DB stores a boolean `status`, convert to UI string. Otherwise use stored string.
+            status: (typeof r.status === 'boolean') ? (r.status ? 'Active' : 'Pending Payment') : (r.status || 'Active'),
+            enrollmentDate: r.enrollment_date || r.enrollmentDate || '',
+            needsPasswordReset: r.needs_password_reset || false,
+            documents: r.documents || {}
+          }));
+
+          setStudents(mapped.length ? mapped : []);
+        }
+      } catch (err) {
+        console.error('Load students failed:', err);
+        const saved = localStorage.getItem('lashawn_students');
+        setStudents(saved ? JSON.parse(saved) : []);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadStudents();
+  }, []);
+
+  // Persist to localStorage as a cache
   useEffect(() => {
-    if (currentStudentId) {
-      localStorage.setItem('lashawn_current_student', currentStudentId);
-    } else {
-      localStorage.removeItem('lashawn_current_student');
+    if (!loading) {
+      localStorage.setItem('lashawn_students', JSON.stringify(students));
     }
-  }, [currentStudentId]);
-  const addStudent = (student: Student) => {
-    setStudents((prev) => [student, ...prev]);
+  }, [students, loading]);
+  const addStudent = async (student: Student) => {
+    // Persist to Supabase first
+    try {
+      const payload: any = {
+        registration_number: student.id,
+        name: student.name,
+        id_number: student.idNumber,
+        email: student.email,
+        phone: student.phone,
+        course: student.course,
+        fees_paid: student.feesPaid || 0,
+        total_fees: student.totalFees || 0,
+        eligible_for_exams: student.eligibleForExams || false,
+        status: student.status || 'Active',
+        enrollment_date: student.enrollmentDate || undefined,
+        documents: student.documents || undefined
+      };
+
+      const { error } = await supabase.from('students').insert(payload);
+      if (error) {
+        console.error('Failed to insert student to Supabase:', error);
+        // still update local UI so user sees record, but warn
+        setStudents((prev) => [student, ...prev]);
+        return;
+      }
+
+      setStudents((prev) => [student, ...prev]);
+    } catch (err) {
+      console.error('addStudent error:', err);
+      setStudents((prev) => [student, ...prev]);
+    }
   };
-  const updateStudent = (id: string, data: Partial<Student>) => {
-    setStudents((prev) =>
-    prev.map((s) =>
-    s.id === id ?
-    {
-      ...s,
-      ...data
-    } :
-    s
-    )
-    );
+  const updateStudent = async (id: string, data: Partial<Student>) => {
+    // For non-privileged fields we can update via the client anon key.
+    // Privileged fields (feesPaid, totalFees, status, eligibleForExams) must be updated via the server admin endpoint.
+    try {
+      const payload: any = {};
+      if (data.name !== undefined) payload.name = data.name;
+      if (data.idNumber !== undefined) payload.id_number = data.idNumber;
+      if (data.email !== undefined) payload.email = data.email;
+      if (data.phone !== undefined) payload.phone = data.phone;
+      if (data.course !== undefined) payload.course = data.course;
+      const adminPayload: any = {};
+      if (data.feesPaid !== undefined) adminPayload.fees_paid = data.feesPaid;
+      if (data.totalFees !== undefined) adminPayload.total_fees = data.totalFees;
+      if (data.eligibleForExams !== undefined) adminPayload.eligible_for_exams = data.eligibleForExams;
+      if (data.status !== undefined) adminPayload.status = data.status;
+      if (data.enrollmentDate !== undefined) payload.enrollment_date = data.enrollmentDate;
+      if (data.documents !== undefined) payload.documents = data.documents;
+
+      // Client-side update for non-privileged fields
+      if (Object.keys(payload).length > 0) {
+        const { error } = await supabase
+          .from('students')
+          .update(payload)
+          .eq('registration_number', id);
+
+        if (error) {
+          console.error('Failed to update student in Supabase (client):', error);
+        }
+      }
+
+      // If there are privileged fields, send them to the server admin endpoint
+      if (Object.keys(adminPayload).length > 0) {
+        try {
+          const resp = await fetch('/api/admin/update-student', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ registration_number: id, update: adminPayload })
+          });
+
+          if (!resp.ok) {
+            console.error('Admin update failed:', await resp.text());
+          }
+        } catch (e) {
+          console.error('Admin update request failed:', e);
+        }
+      }
+
+      setStudents((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, ...data } : s))
+      );
+    } catch (err) {
+      console.error('updateStudent error:', err);
+    }
   };
-  const deleteStudent = (id: string) => {
-    setStudents((prev) => prev.filter((s) => s.id !== id));
+  const deleteStudent = async (id: string) => {
+    try {
+      // Deletion is privileged — call the server admin endpoint which uses the service role key.
+      const resp = await fetch('/api/admin/delete-student', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ registration_number: id })
+      });
+
+      if (!resp.ok) {
+        console.error('Admin delete failed:', await resp.text());
+      }
+    } catch (err) {
+      console.error('deleteStudent error:', err);
+    } finally {
+      setStudents((prev) => prev.filter((s) => s.id !== id));
+    }
   };
   const loginStudent = (id: string) => {
     setCurrentStudentId(id);
