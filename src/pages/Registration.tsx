@@ -101,7 +101,7 @@ export function Registration() {
             eligible_for_exams: false,
             // Store boolean status server-side (true=active, false=pending/not-active)
             status: false
-          });
+          } as any);
 
         if (insertError) {
           console.error('Insert error:', insertError);
@@ -110,11 +110,19 @@ export function Registration() {
           return;
         }
 
-        // Call server to start STK Push
-        const resp = await fetch('/api/stkpush', {
+        // Normalize phone to international MSISDN (Kenya: 254...) and call server
+        let phone = (formData.phone || '').toString().trim();
+        // remove leading + and convert leading 0 to country code 254
+        phone = phone.replace(/^\+/, '').replace(/^0/, '254');
+
+        // Determine API base: use local backend when developing on localhost,
+        // otherwise use the current origin (production domain).
+        const apiBase = window.location.origin.includes('localhost') ? 'http://localhost:4000' : window.location.origin;
+
+        const resp = await fetch(`${apiBase}/api/stkpush`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ phone: formData.phone, amount: totalFee, registration_number: newRegNum })
+          body: JSON.stringify({ phone, amount: totalFee, registration_number: newRegNum })
         });
 
         const data = await resp.json();
@@ -139,7 +147,7 @@ export function Registration() {
           totalFees: totalFee,
           pendingDays: 30,
           eligibleForExams: false,
-          status: false,
+          status: 'Pending Payment',
           enrollmentDate: new Date().toISOString().split('T')[0],
           documents: {}
         });
@@ -179,7 +187,7 @@ export function Registration() {
             eligible_for_exams: false,
             // Mark active in DB as boolean true
             status: true
-          });
+          } as any);
 
         if (insertError) {
           console.error('Insert error:', insertError);
@@ -209,7 +217,7 @@ export function Registration() {
           totalFees: totalFee,
           pendingDays: 30,
           eligibleForExams: false,
-          status: true,
+          status: 'Active',
           enrollmentDate: new Date().toISOString().split('T')[0],
           needsPasswordReset: true,
           documents: {}

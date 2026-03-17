@@ -79,7 +79,7 @@ export function StudentLogin() {
       }
 
       await supabase.auth.resetPasswordForEmail(student.email, {
-        redirectTo: "http://localhost:5173/reset-password",
+        redirectTo: window.location.origin + '/reset-password',
       });
 
       alert("Password reset link sent to your email.");

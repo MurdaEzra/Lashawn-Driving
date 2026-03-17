@@ -8,7 +8,7 @@ const { createClient } = require('@supabase/supabase-js');
 const app = express();
 
 // Configure CORS: allow only origins listed in CORS_ORIGINS (comma-separated)
-const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173').split(',').map(o => o.trim()).filter(Boolean);
+const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173,https://lashawnacademy.com').split(',').map(o => o.trim()).filter(Boolean);
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true); // allow non-browser requests (Postman, server-side)
