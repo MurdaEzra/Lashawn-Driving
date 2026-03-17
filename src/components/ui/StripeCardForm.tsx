@@ -8,11 +8,21 @@ type Props = {
   amount: number;
   registrationNumber: string;
   email?: string;
+  billingDetails?: {
+    name: string;
+    address: {
+      line1: string;
+      city: string;
+      state: string;
+      postal_code: string;
+      country: string;
+    };
+  };
   onSuccess: (data: any) => void;
   onError?: (err: any) => void;
 };
 
-function InnerForm({ amount, registrationNumber, email, onSuccess, onError }: Props) {
+function InnerForm({ amount, registrationNumber, email, billingDetails, onSuccess, onError }: Props) {
   const stripe = useStripe();
   const elements = useElements();
   const [loading, setLoading] = useState(false);
@@ -37,7 +47,14 @@ function InnerForm({ amount, registrationNumber, email, onSuccess, onError }: Pr
       if (!card) throw new Error('Card element not found');
 
       const result = await stripe.confirmCardPayment(clientSecret, {
-        payment_method: { card, billing_details: { email } }
+        payment_method: { 
+          card, 
+          billing_details: { 
+            email,
+            name: billingDetails?.name,
+            address: billingDetails?.address
+          } 
+        }
       });
 
       if (result.error) {

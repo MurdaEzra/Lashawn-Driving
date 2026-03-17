@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '../components/ui/Button';
 import {
   CheckCircle,
@@ -55,6 +55,23 @@ export function Registration() {
     termsAccepted: false,
     privacyAccepted: false
   });
+  const [billingDetails, setBillingDetails] = useState({
+    name: '',
+    address: {
+      line1: '',
+      city: '',
+      state: '',
+      postal_code: '',
+      country: 'KE'
+    }
+  });
+
+  // Update billing name when student name changes
+  useEffect(() => {
+    if (formData.studentName) {
+      setBillingDetails(prev => ({ ...prev, name: formData.studentName }));
+    }
+  }, [formData.studentName]);
   const handleChange = (
   e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
   {
@@ -101,11 +118,11 @@ export function Registration() {
       });
 
       const next = max + 1;
-      return String(next).padStart(4, '0');
+      return `LASH-2026-${String(next).padStart(4, '0')}`;
     } catch (e) {
       console.error('generateRegistrationNumber error', e);
       const fallback = Math.floor(1 + Math.random() * 9999);
-      return String(fallback).padStart(4, '0');
+      return `LASH-2026-${String(fallback).padStart(4, '0')}`;
     }
   };
   const handlePayment = async (e: React.FormEvent) => {
@@ -128,28 +145,112 @@ export function Registration() {
       }
 
       if (paymentMethod === 'mpesa') {
-        // For MPESA initiate STK Push via server and create a pending student record
-        const { error: insertError } = await supabase
+        // Insert student
+        const { data: student, error: studentError } = await supabase
           .from('students')
-            .insert({
+          .insert({
             registration_number: newRegNum,
             name: formData.studentName,
             id_number: formData.idNumber,
+            gender: formData.gender,
+            dob: formData.dob,
+            nationality: formData.nationality,
+            county: formData.county,
             email: formData.email,
             phone: formData.phone,
-            course: formData.drivingCategory || 'General Course',
+            previous_experience: formData.previousExperience,
+            health_condition: formData.healthCondition,
+            status: false,
             fees_paid: chosenAmount,
             total_fees: totalFee,
-            eligible_for_exams: false,
-            // Store boolean status server-side (true=active, false=pending/not-active)
-            status: false
-          } as any);
+            eligible_for_exams: false
+          })
+          .select()
+          .single();
 
-        if (insertError) {
-          console.error('Insert error:', insertError);
+        if (studentError) {
+          console.error('Student insert error:', studentError);
           alert('Failed to save student data. Please try again.');
           setIsSubmitting(false);
           return;
+        }
+
+        // Insert application
+        const { error: appError } = await supabase
+          .from('applications')
+          .insert({
+            student_id: student.id,
+            application_type: formData.applicationType,
+            branch: formData.branch,
+            driving_category: formData.drivingCategory,
+            driving_class: formData.drivingClass,
+            schedule: formData.schedule,
+            source: formData.source,
+            sales_person: formData.salesPerson,
+            terms_accepted: formData.termsAccepted,
+            privacy_accepted: formData.privacyAccepted
+          });
+
+        if (appError) {
+          console.error('Application insert error:', appError);
+          // Continue, as student is inserted
+        }
+
+        // Insert next of kin
+        const { error: kinError } = await supabase
+          .from('next_of_kin')
+          .insert({
+            student_id: student.id,
+            name: formData.kinName,
+            relationship: formData.kinRelationship,
+            phone: formData.kinPhone,
+            email: formData.kinEmail,
+            city: formData.kinCity
+          });
+
+        if (kinError) {
+          console.error('Next of kin insert error:', kinError);
+        }
+
+        // Insert sponsor
+        const sponsorData = formData.isSelfSponsored === 'no' ? {
+          student_id: student.id,
+          name: formData.sponsorName,
+          relationship: formData.sponsorRelationship,
+          phone: formData.sponsorPhone,
+          email: formData.sponsorEmail,
+          city: formData.sponsorCity,
+          is_self_sponsored: false
+        } : {
+          student_id: student.id,
+          name: formData.studentName,
+          relationship: 'Self',
+          phone: formData.phone,
+          email: formData.email,
+          city: formData.county,
+          is_self_sponsored: true
+        };
+
+        const { error: sponsorError } = await supabase
+          .from('sponsors')
+          .insert(sponsorData);
+
+        if (sponsorError) {
+          console.error('Sponsor insert error:', sponsorError);
+        }
+
+        // Insert payment
+        const { error: paymentError } = await supabase
+          .from('payments')
+          .insert({
+            student_id: student.id,
+            amount: chosenAmount,
+            method: 'mpesa',
+            status: 'pending'
+          });
+
+        if (paymentError) {
+          console.error('Payment insert error:', paymentError);
         }
 
         // Normalize phone to international MSISDN (Kenya: 254...) and call server
@@ -199,27 +300,111 @@ export function Registration() {
         setStep(4);
         window.scrollTo(0, 0);
       } else {
-        // Card flow: create a pending student record and show card form
-        const { error: insertError } = await supabase
+        // Card flow: create records and show card form
+        const { data: student, error: studentError } = await supabase
           .from('students')
           .insert({
             registration_number: newRegNum,
             name: formData.studentName,
             id_number: formData.idNumber,
+            gender: formData.gender,
+            dob: formData.dob,
+            nationality: formData.nationality,
+            county: formData.county,
             email: formData.email,
             phone: formData.phone,
-            course: formData.drivingCategory || 'General Course',
+            previous_experience: formData.previousExperience,
+            health_condition: formData.healthCondition,
+            status: false,
             fees_paid: chosenAmount,
             total_fees: totalFee,
-            eligible_for_exams: false,
-            status: false
-          } as any);
+            eligible_for_exams: false
+          })
+          .select()
+          .single();
 
-        if (insertError) {
-          console.error('Insert error:', insertError);
+        if (studentError) {
+          console.error('Student insert error:', studentError);
           alert('Failed to save student data. Please try again.');
           setIsSubmitting(false);
           return;
+        }
+
+        // Insert application
+        const { error: appError } = await supabase
+          .from('applications')
+          .insert({
+            student_id: student.id,
+            application_type: formData.applicationType,
+            branch: formData.branch,
+            driving_category: formData.drivingCategory,
+            driving_class: formData.drivingClass,
+            schedule: formData.schedule,
+            source: formData.source,
+            sales_person: formData.salesPerson,
+            terms_accepted: formData.termsAccepted,
+            privacy_accepted: formData.privacyAccepted
+          });
+
+        if (appError) {
+          console.error('Application insert error:', appError);
+        }
+
+        // Insert next of kin
+        const { error: kinError } = await supabase
+          .from('next_of_kin')
+          .insert({
+            student_id: student.id,
+            name: formData.kinName,
+            relationship: formData.kinRelationship,
+            phone: formData.kinPhone,
+            email: formData.kinEmail,
+            city: formData.kinCity
+          });
+
+        if (kinError) {
+          console.error('Next of kin insert error:', kinError);
+        }
+
+        // Insert sponsor
+        const sponsorData = formData.isSelfSponsored === 'no' ? {
+          student_id: student.id,
+          name: formData.sponsorName,
+          relationship: formData.sponsorRelationship,
+          phone: formData.sponsorPhone,
+          email: formData.sponsorEmail,
+          city: formData.sponsorCity,
+          is_self_sponsored: false
+        } : {
+          student_id: student.id,
+          name: formData.studentName,
+          relationship: 'Self',
+          phone: formData.phone,
+          email: formData.email,
+          city: formData.county,
+          is_self_sponsored: true
+        };
+
+        const { error: sponsorError } = await supabase
+          .from('sponsors')
+          .insert(sponsorData);
+
+        if (sponsorError) {
+          console.error('Sponsor insert error:', sponsorError);
+        }
+
+        // Insert payment
+        const { error: paymentError } = await supabase
+          .from('payments')
+          .insert({
+            student_id: student.id,
+            amount: chosenAmount,
+            method: 'card',
+            status: 'pending'
+          });
+
+        if (paymentError) {
+          console.error('Payment insert error:', paymentError);
         }
 
         // Show the Stripe card form to collect card details and confirm payment
@@ -267,7 +452,7 @@ export function Registration() {
     navigator.clipboard.writeText(registrationNumber);
   };
 
-  const handleCardSuccess = async (respData: any) => {
+  const handleCardSuccess = async () => {
     try {
       // Fetch updated student record to get temp password (if stored)
       const { data: student, error } = await supabase
@@ -1129,10 +1314,79 @@ export function Registration() {
 
                     {showCardForm ? (
                       <div className="pt-4">
+                        <div className="space-y-4 mb-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              Name on Card *
+                            </label>
+                            <input
+                              type="text"
+                              value={billingDetails.name}
+                              onChange={(e) => setBillingDetails(prev => ({ ...prev, name: e.target.value }))}
+                              required
+                              className="w-full rounded-md border border-gray-300 px-3 py-2 focus:border-[#2E8B57] focus:ring-1 focus:ring-[#2E8B57] outline-none"
+                              placeholder="Enter name as it appears on card"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              Billing Address *
+                            </label>
+                            <input
+                              type="text"
+                              value={billingDetails.address.line1}
+                              onChange={(e) => setBillingDetails(prev => ({ ...prev, address: { ...prev.address, line1: e.target.value } }))}
+                              required
+                              className="w-full rounded-md border border-gray-300 px-3 py-2 focus:border-[#2E8B57] focus:ring-1 focus:ring-[#2E8B57] outline-none mb-2"
+                              placeholder="Street address"
+                            />
+                            <div className="grid grid-cols-2 gap-2">
+                              <input
+                                type="text"
+                                value={billingDetails.address.city}
+                                onChange={(e) => setBillingDetails(prev => ({ ...prev, address: { ...prev.address, city: e.target.value } }))}
+                                required
+                                className="rounded-md border border-gray-300 px-3 py-2 focus:border-[#2E8B57] focus:ring-1 focus:ring-[#2E8B57] outline-none"
+                                placeholder="City"
+                              />
+                              <input
+                                type="text"
+                                value={billingDetails.address.state}
+                                onChange={(e) => setBillingDetails(prev => ({ ...prev, address: { ...prev.address, state: e.target.value } }))}
+                                required
+                                className="rounded-md border border-gray-300 px-3 py-2 focus:border-[#2E8B57] focus:ring-1 focus:ring-[#2E8B57] outline-none"
+                                placeholder="State/Province"
+                              />
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 mt-2">
+                              <input
+                                type="text"
+                                value={billingDetails.address.postal_code}
+                                onChange={(e) => setBillingDetails(prev => ({ ...prev, address: { ...prev.address, postal_code: e.target.value } }))}
+                                required
+                                className="rounded-md border border-gray-300 px-3 py-2 focus:border-[#2E8B57] focus:ring-1 focus:ring-[#2E8B57] outline-none"
+                                placeholder="Postal Code"
+                              />
+                              <select
+                                value={billingDetails.address.country}
+                                onChange={(e) => setBillingDetails(prev => ({ ...prev, address: { ...prev.address, country: e.target.value } }))}
+                                required
+                                className="rounded-md border border-gray-300 px-3 py-2 focus:border-[#2E8B57] focus:ring-1 focus:ring-[#2E8B57] outline-none"
+                              >
+                                <option value="KE">Kenya</option>
+                                <option value="US">United States</option>
+                                <option value="GB">United Kingdom</option>
+                                <option value="CA">Canada</option>
+                                <option value="AU">Australia</option>
+                              </select>
+                            </div>
+                          </div>
+                        </div>
                         <StripeCardForm
                           amount={paymentAmount === '' ? getInvoiceTotal() : Number(paymentAmount)}
                           registrationNumber={registrationNumber}
                           email={formData.email}
+                          billingDetails={billingDetails}
                           onSuccess={handleCardSuccess}
                           onError={(err) => alert('Card payment failed: ' + (err?.message || JSON.stringify(err)))}
                         />
