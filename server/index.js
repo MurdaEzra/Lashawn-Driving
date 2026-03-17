@@ -265,6 +265,107 @@ app.post('/api/confirm-card-payment', async (req, res) => {
   }
 });
 
+// Insert student through backend (protects service role key)
+app.post('/api/students', async (req, res) => {
+  try {
+    const {
+      registration_number,
+      name,
+      id_number,
+      email,
+      phone,
+      course,
+      fees_paid,
+      total_fees,
+      eligible_for_exams,
+      status,
+      enrollment_date,
+      documents
+    } = req.body;
+
+    // Validate required fields
+    if (!registration_number || !name || !email || !phone) {
+      return res.status(400).json({ error: 'registration_number, name, email, and phone are required' });
+    }
+
+    if (!supabase) return res.status(500).json({ error: 'Supabase not configured' });
+
+    // Check if student already exists
+    const { data: existingStudent, error: checkErr } = await supabase
+      .from('students')
+      .select('id')
+      .eq('registration_number', registration_number)
+      .single();
+
+    if (checkErr && checkErr.code !== 'PGRST116') {
+      // PGRST116 means no rows found, which is expected for new students
+      console.error('Error checking existing student', checkErr);
+      return res.status(500).json({ error: 'Failed to check existing student' });
+    }
+
+    if (existingStudent) {
+      return res.status(400).json({ error: 'Student with this registration number already exists' });
+    }
+
+    // Prepare student payload
+    const payload = {
+      registration_number,
+      name,
+      id_number: id_number || null,
+      email,
+      phone,
+      course: course || null,
+      fees_paid: fees_paid || 0,
+      total_fees: total_fees || 0,
+      eligible_for_exams: eligible_for_exams || false,
+      status: status !== undefined ? status : 'Active',
+      enrollment_date: enrollment_date || new Date().toISOString(),
+      documents: documents || null
+    };
+
+    // Insert student using service role key (bypasses RLS)
+    const { data: newStudent, error: insertErr } = await supabase
+      .from('students')
+      .insert([payload])
+      .select();
+
+    if (insertErr) {
+      console.error('Error inserting student', insertErr);
+      return res.status(500).json({ error: 'Failed to insert student' });
+    }
+
+    // Create auth user if email is valid
+    if (email && email.includes('@')) {
+      try {
+        const tempPass = Math.random().toString(36).slice(-10) + 'A1!';
+        const { data: userData, error: createUserErr } = await supabase.auth.admin.createUser({
+          email: email,
+          password: tempPass,
+          email_confirm: true
+        });
+
+        if (createUserErr) {
+          console.error('Error creating auth user for student', createUserErr);
+          // Still return success as student record was created; auth user can be created later
+        } else if (userData && userData.user) {
+          // Update student with auth user id and temp password
+          await supabase
+            .from('students')
+            .update({ id: userData.user.id, temp_password: tempPass })
+            .eq('registration_number', registration_number);
+        }
+      } catch (authErr) {
+        console.error('Exception creating auth user', authErr);
+      }
+    }
+
+    return res.status(201).json({ ok: true, student: newStudent?.[0] || payload });
+  } catch (err) {
+    console.error('Insert student error', err);
+    return res.status(500).json({ error: 'Insert student failed' });
+  }
+});
+
 app.listen(PORT, () => {
   console.info(`STK server running on port ${PORT}`);
 });

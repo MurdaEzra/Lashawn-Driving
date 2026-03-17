@@ -96,7 +96,7 @@ export function StudentProvider({ children }: {children: React.ReactNode;}) {
     }
   }, [students, loading]);
   const addStudent = async (student: Student) => {
-    // Persist to Supabase first
+    // Persist to backend first (backend uses service role key)
     try {
       const payload: any = {
         registration_number: student.id,
@@ -113,9 +113,17 @@ export function StudentProvider({ children }: {children: React.ReactNode;}) {
         documents: student.documents || undefined
       };
 
-      const { error } = await supabase.from('students').insert(payload);
-      if (error) {
-        console.error('Failed to insert student to Supabase:', error);
+      // Call backend API instead of direct Supabase insert
+      const apiBase = 'https://lashawn-backend.onrender.com'; // or your backend URL
+      const response = await fetch(`${apiBase}/api/students`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('Failed to insert student via backend:', errorData);
         // still update local UI so user sees record, but warn
         setStudents((prev) => [student, ...prev]);
         return;
