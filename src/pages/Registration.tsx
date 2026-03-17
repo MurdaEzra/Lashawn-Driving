@@ -69,17 +69,47 @@ export function Registration() {
     setStep((prev) => prev - 1);
     window.scrollTo(0, 0);
   };
-  const generateRegistrationNumber = () => {
-    const year = new Date().getFullYear();
-    const random = Math.floor(1000 + Math.random() * 9000);
-    return `LASH-${year}-${random}`;
+  const generateRegistrationNumber = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('students')
+        .select('registration_number')
+        .limit(10000);
+
+      if (error) {
+        console.error('Error fetching registration numbers:', error);
+      }
+
+      let max = 0;
+      (data || []).forEach((row: any) => {
+        const rn = String(row.registration_number || '').trim();
+        if (/^\d+$/.test(rn)) {
+          const n = parseInt(rn, 10);
+          if (n > max) max = n;
+        } else {
+          // Try to extract trailing numeric part from legacy formats
+          const m = rn.match(/(\d+)$/);
+          if (m) {
+            const n = parseInt(m[1], 10);
+            if (n > max) max = n;
+          }
+        }
+      });
+
+      const next = max + 1;
+      return String(next).padStart(4, '0');
+    } catch (e) {
+      console.error('generateRegistrationNumber error', e);
+      const fallback = Math.floor(1 + Math.random() * 9999);
+      return String(fallback).padStart(4, '0');
+    }
   };
   const handlePayment = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
 
     try {
-      const newRegNum = generateRegistrationNumber();
+      const newRegNum = await generateRegistrationNumber();
       setRegistrationNumber(newRegNum);
 
       // Calculate fees
@@ -115,9 +145,10 @@ export function Registration() {
         // remove leading + and convert leading 0 to country code 254
         phone = phone.replace(/^\+/, '').replace(/^0/, '254');
 
-        // Determine API base: use local backend when developing on localhost,
-        // otherwise use the current origin (production domain).
-        const apiBase = window.location.origin.includes('localhost') ? 'http://localhost:4000' : window.location.origin;
+        // Determine API base:
+        // - If Vite env `VITE_API_BASE` is provided at build time, use that (recommended for Render).
+        // - Otherwise, use localhost backend during dev or current origin in production.
+        const apiBase = import.meta.env.VITE_API_BASE || (window.location.origin.includes('localhost') ? 'http://localhost:4000' : window.location.origin);
 
         const resp = await fetch(`${apiBase}/api/stkpush`, {
           method: 'POST',
