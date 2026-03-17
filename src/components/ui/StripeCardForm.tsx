@@ -23,7 +23,8 @@ function InnerForm({ amount, registrationNumber, email, onSuccess, onError }: Pr
     setLoading(true);
 
     try {
-      const resp = await fetch('/api/create-payment-intent', {
+      const apiBase = 'https://lashawn-backend.onrender.com';
+      const resp = await fetch(`${apiBase}/api/create-payment-intent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ amount, registration_number: registrationNumber, receipt_email: email })
@@ -47,7 +48,7 @@ function InnerForm({ amount, registrationNumber, email, onSuccess, onError }: Pr
 
       if (result.paymentIntent && result.paymentIntent.status === 'succeeded') {
         // Inform server to finalize and create auth user
-        const confirmResp = await fetch('/api/confirm-card-payment', {
+        const confirmResp = await fetch(`${apiBase}/api/confirm-card-payment`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ payment_intent_id: result.paymentIntent.id, registration_number: registrationNumber })

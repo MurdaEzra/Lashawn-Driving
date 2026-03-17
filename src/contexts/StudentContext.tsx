@@ -14,6 +14,7 @@ export interface Student {
   status: string;
   enrollmentDate: string;
   needsPasswordReset?: boolean;
+  tempPassword?: string; // For students who haven't set a password yet
   documents?: {
     passportPhoto?: string;
     idCard?: string;

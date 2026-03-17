@@ -160,7 +160,7 @@ export function Registration() {
         // Determine API base:
         // - If Vite env `VITE_API_BASE` is provided at build time, use that (recommended for Render).
         // - Otherwise, use localhost backend during dev or current origin in production.
-        const apiBase = import.meta.env.VITE_API_BASE || (window.location.origin.includes('localhost') ? 'http://localhost:4000' : window.location.origin);
+        const apiBase = 'https://lashawn-backend.onrender.com';
 
         const resp = await fetch(`${apiBase}/api/stkpush`, {
           method: 'POST',
