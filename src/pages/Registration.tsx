@@ -586,9 +586,9 @@ export function Registration() {
                   className="w-full rounded-md border border-gray-300 px-3 py-2 focus:border-[#2E8B57] focus:ring-1 focus:ring-[#2E8B57] outline-none">
                   
                     <option value="">--Select--</option>
-                    <option value="Nairobi Main">Nairobi Main Campus</option>
-                    <option value="Eldoret">Eldoret Branch</option>
-                    <option value="Mombasa">Mombasa Branch</option>
+                    <option value="Nairobi Main">Eldoret Road Branch</option>
+                    <option value="Eldoret">Eldoret Town Branch</option>
+                    <option value="Mombasa">Nyahururu Branch</option>
                   </select>
                 </div>
 
@@ -649,7 +649,7 @@ export function Registration() {
                   name="studentName"
                   value={formData.studentName}
                   onChange={handleChange}
-                  placeholder="e.g John Doe"
+                  placeholder="e.g Wekesa Simiyu"
                   required
                   className="w-full rounded-md border border-gray-300 px-3 py-2 focus:border-[#2E8B57] focus:ring-1 focus:ring-[#2E8B57] outline-none" />
                 
@@ -758,7 +758,7 @@ export function Registration() {
                   name="phone"
                   value={formData.phone}
                   onChange={handleChange}
-                  placeholder="e.g 0712345678"
+                  placeholder="e.g +254712345678"
                   required
                   className="w-full rounded-md border border-gray-300 px-3 py-2 focus:border-[#2E8B57] focus:ring-1 focus:ring-[#2E8B57] outline-none" />
                 
@@ -883,7 +883,7 @@ export function Registration() {
                     name="kinPhone"
                     value={formData.kinPhone}
                     onChange={handleChange}
-                    placeholder="e.g 0712345678"
+                    placeholder="e.g +254712345678"
                     required
                     className="w-full rounded-md border border-gray-300 px-3 py-2 focus:border-[#2E8B57] focus:ring-1 focus:ring-[#2E8B57] outline-none" />
                   
